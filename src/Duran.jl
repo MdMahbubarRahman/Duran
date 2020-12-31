@@ -1,6 +1,4 @@
-#=
 
-=#
 
 module Duran
 
@@ -30,7 +28,11 @@ include("oa_util.jl")
 include("OriginalProblem.jl")
 include("solver_attributes.jl")
 include("moi_wrapper.jl")
+include("optimize.jl")
 
+#=
+    Used from https://github.com/lanl-ansi/Juniper.jl
+=#
 function Base.show(io::IO, opts::SolverOptions)
     longest_field_name = maximum([length(string(fname)) for fname in fieldnames(SolverOptions)])+2
     for name in fieldnames(SolverOptions)
