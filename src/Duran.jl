@@ -25,6 +25,12 @@ const SQF = MOI.ScalarQuadraticFunction{Float64}
 const VECTOR = MOI.VectorOfVariables
 
 include("storage_types.jl")
+include("util.jl")
+include("oa_util.jl")
+include("OriginalProblem.jl")
+include("solver_attributes.jl")
+include("moi_wrapper.jl")
+
 function Base.show(io::IO, opts::SolverOptions)
     longest_field_name = maximum([length(string(fname)) for fname in fieldnames(SolverOptions)])+2
     for name in fieldnames(SolverOptions)
@@ -37,15 +43,6 @@ function Base.show(io::IO, opts::SolverOptions)
         end
     end
 end
-
-include("util.jl")
-include("oa_util.jl")
-include("OriginalProblem.jl")
-include("solver_attributes.jl")
-include("moi_wrapper.jl")
-include("storage_types.jl")
-
-greet() = print("Hello World!")
 
 
 
