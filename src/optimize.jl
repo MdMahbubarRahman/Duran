@@ -1,4 +1,6 @@
-
+#=
+    Used from https://github.com/lanl-ansi/Juniper.jl
+=#
 
 """
 MOI functions, sets and, other type definitions
