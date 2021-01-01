@@ -106,11 +106,10 @@ mutable struct OAdata
     ref_l_var               :: Vector{Float64}
     ref_u_var               :: Vector{Float64}
     ref_var_type            :: Vector{Symbol}
-    ref_num_nl_var          :: Int
+    ref_num_var             :: Int
     ref_num_nl_constr       :: Int
     ref_nlp_constr_type     :: Vector{Symbol}
 
-    ref_objective           :: Union{SVF, SAF, SQF, Nothing}
     obj_sense               :: Symbol
 
     oa_status               :: Symbol
