@@ -334,3 +334,79 @@ function get_binvar_and_objterms(obj_expr, m, op)
     d_expr = copy(obj_expr)
     return _expr_deref!(c_expr, d_expr, m, op, dict, bin_vars, bin_obj_terms)
 end
+
+
+
+
+
+function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    oad.ref_mip_model = Model()
+    lb = oad.ref_l_var
+    ub = oad.reg_u_var
+    push!(lb, -Inf)
+    push!(ub, Inf)
+    vartype = oad.ref_var_type
+    push!(vartype, :Cont)
+    # all continuous we solve relaxation first
+    @variable(oad.ref_mip_model, lb[i] <= x[i=1:(oad.ref_num_var+1)] <= ub[i])
+    for i in 1:length(oad.ref_var_type)
+        oad.ref_var_type[i] == :Int && JuMP.set_integer(x[i])
+        oad.ref_var_type[i] == :Bin && JuMP.set_binary(x[i])
+    end
+    # register function into the mip model
+    register_functions!(oad.ref_mip_model, op.options.registered_functions)
+    # attach linear constraints to the mip model
+    backend = JuMP.backend(oad.ref_mip_model);
+    llc = optimizer.linear_le_constraints
+    lgc = optimizer.linear_ge_constraints
+    lec = optimizer.linear_eq_constraints
+    #add linear constraints to the mip model
+    for constr_type in [llc, lgc, lec]
+        for constr in constr_type
+            MOI.add_constraint(backend, constr[1], constr[2])
+        end
+    end
+
+    #set objective
+    @info "the objective function is linear or quadratic.\n"
+    MOI.set(oad.ref_mip_model, MOI.ObjectiveFunction{typeof(oad.ref_objective)}(), oad.ref_objective)
+    MOI.set(oad.ref_mip_model, MOI.ObjectiveSense(), optimizer.sense)
+
+    oad.ref_mip_x = x
+end
+
+function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    d=JuMP.NLPEvaluator(oad.ref_nlp_model)
+    MOI.initialize(d, [:Grad, :Jac, :ExprGraph])
+
+    jac_IJ = MOI.jacobian_structure(d)
+    nlp_solution=ones(oad.ref_num_nl_var)
+
+    g_val = zeros(oad.ref_num_nl_constr)
+    g_jac = zeros(length(jac_IJ))
+    MOI.eval_constraint(d, g_val, nlp_solution)
+    MOI.eval_constraint_jacobian(d, g_jac, nlp_solution)
+
+    #constraints cut
+    varidx_new = [zeros(Int, 0) for i in 1:oad.ref_num_nl_constr]
+    coef_new = [zeros(0) for i in 1:oad.ref_num_nl_constr]
+
+    for k in 1:length(jac_IJ)
+        row = jac_IJ[k][1]
+        push!(varidx_new[row], jac_IJ[k][2])
+        push!(coef_new[row], g_jac[k])
+    end
+
+    for i in 1:oad.ref_num_nl_constr
+        new_rhs = -g_val[i]
+        for j in 1:length(varidx_new[i])
+            new_rhs += coef_new[i][j] * nlp_solution[Int(varidx_new[i][j])]
+        end
+        if oad.ref_nlp_constr_type[i] == :(<=)
+            @constraint(oad.ref_mip_model, dot(coef_new[i], oad.ref_mip_x[varidx_new[i]]) <= new_rhs)
+        else
+            @constraint(oad.ref_mip_model, dot(coef_new[i], oad.ref_mip_x[varidx_new[i]]) >= new_rhs)
+        end
+    end
+    #no need to derive obj cut as the ref_nlp obj is linear.
+end
