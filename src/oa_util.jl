@@ -7,22 +7,30 @@ function init_oa_data(op::OriginalProblem, oa_data::OAdata)
     initiates OAdata structure using information of the OriginalProblem.
 """
 function init_oa_data(op::OriginalProblem, oa_data::OAdata)
-    oa_data.ref_l_var               = Float64[]
-    oa_data.ref_u_var               = Float64[]
-    oa_data.ref_num_var             = 0
-    oa_data.ref_num_nl_constr       = 0
+    oa_data.num_l_constr             = jp.num_l_constr
+    oa_data.ref_l_var                = Float64[]
+    oa_data.ref_u_var                = Float64[]
+    oa_data.ref_num_var              = 0
+    oa_data.ref_num_nl_constr        = 0
 
-    oa_data.obj_sense               = op.obj_sense
+    oa_data.obj_sense                = jp.obj_sense
 
-    oa_data.oa_status               = :Unknown
-    oa_data.oa_started              = false
-    oa_data.incumbent               = Float64[]
-    oa_data.new_incumbent           = false
-    oa_data.total_time              = 0
-    oa_data.obj_val                 = Inf
-    oa_data.obj_bound               = -Inf
-    oa_data.obj_gap                 = Inf
-    oa_data.oa_iter                 = 0
+    oa_data.oa_status                = :Unknown
+    oa_data.oa_started               = false
+    oa_data.incumbent                = Float64[]
+    oa_data.new_incumbent            = false
+    oa_data.total_time               = 0
+    oa_data.obj_val                  = Inf
+    oa_data.obj_bound                = -Inf
+    oa_data.obj_gap                  = Inf
+    oa_data.oa_iter                  = 0
+
+    oa_data.milp_sol_available       = false
+    oa_data.ref_mip_solution         = Float64[]
+    oa_data.mip_infeasible           = false
+    oa_data.ref_nlp_solution         = Float64[]
+    oa_data.nlp_infeasible           = false
+    oa_data.ref_feasibility_solution = Float64[]
 end
 
 """
@@ -409,4 +417,37 @@ function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::
         end
     end
     #no need to derive obj cut as the ref_nlp obj is linear.
+end
+
+
+
+
+function construct_ref_feasibility_model(oad::OAdata)
+    # in case of infeasible nlp problem, we need to solve a feasibility problem
+    oad.ref_feasibility_model = Model()
+    @variable(oad.ref_feasibility_model,  x[1:(oad.ref_num_var+oad.ref_num_nl_constr)] >= 0.0)
+    #linear constraints are automatically satisfied
+    #we only need to focus on nonlinear constraints
+    d = JuMP.NLPEvaluator(oad.ref_nlp_model)
+    features = MOI.features_available(d)
+    MOI.initialize(d, features)
+    #define constraints
+    for i in 1:jp.ref_num_nl_constr
+        constr_expr = MOI.constraint_expr(d, i)
+        constr_expr = expr_dereferencing(constr_expr[2], oad.ref_feasibility_model)
+        if constr_expr.args[1] == :(<=)
+            con_ex = :($(constr_expr) <= $(x[i+oad.ref_num_var]))
+            JuMP.add_NL_constraint(oad.ref_feasibility_model, con_ex)
+        elseif constr_expr.args[1] == :(>=)
+            con_ex = :(-$(constr_expr) <= -$(x[i+oad.ref_num_var]))
+            JuMP.add_NL_constraint(oad.ref_feasibility_model, con_ex)
+        else
+            @error "\n Nonlinear constarint should not be equality constarint. \n"
+        end
+    end
+    #define obj function
+    oad.obj_sense == :Min && JuMP.@objective(oad.ref_feasibility_model, Min, sum(x[i] for i in (oad.ref_num_var+1):(oad.ref_num_var+oad.ref_num_nl_constr)))
+    oad.obj_sense == :Max && JuMP.@objective(oad.ref_feasibility_model, Max, sum(x[i] for i in (oad.ref_num_var+1):(oad.ref_num_var+oad.ref_num_nl_constr)))
+
+    oad.ref_feasibility_x = x
 end

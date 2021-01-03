@@ -17,10 +17,10 @@ function solve_ref_nlp_model(model::MOI.AbstractOptimizer, oa_data::OAdata)
 
     if JuMP.termination_status(oa_data.ref_nlp_model) == :OPTIMAL || JuMP.termination_status(oa_data.ref_nlp_model) == :LOCALLY_SOLVED
         @info "\n The reformulated nlp problem has a feasible solution. \n"
-        oa_data.new_incumbent = true
-        return JuMP.value.(oa_data.ref_nlp_x)
+        oa_data.ref_nlp_solution = JuMP.value.(oa_data.ref_nlp_x)
     else
-        @error "\n The reformulated nlp problem is infeasible. \n"
+        @info "\n The reformulated nlp problem is infeasible. \n"
+        oa_data.nlp_infeasible = true
     end
 end
 
@@ -33,12 +33,37 @@ function solve_ref_mip_model(model::MOI.AbstractOptimizer, oa_data::OAdata)
     if JuMP.termination_status(oa_data.ref_mip_model) == :OPTIMAL || JuMP.termination_status(oa_data.ref_mip_model) == :LOCALLY_SOLVED
         @info "\n The reformulated mip problem has a feasible solution. \n"
         oa_data.milp_sol_available = true
-        return JuMP.value.(oa_data.ref_mip_x)
+        oa_data.ref_mip_solution = JuMP.value.(oa_data.ref_mip_x)
     else
-        @error "\n The reformulated nlp problem is infeasible. \n"
+        @info "\n The reformulated mip problem is infeasible. \n"
+        oa_data.mip_infeasible = true
     end
 end
 
+
+
+function solve_ref_feasibility_model(model::MOI.AbstractOptimizer, oa_data::OAdata)
+    #fix int variables
+    if oa_data.milp_sol_available
+        for i in 1:oa_data.ref_num_var
+            if (oa_data.ref_var_type[i] == :Int) || (oa_data.ref_var_type[i] ==:Bin)
+                JuMP.set_lower_bound(oa_data.ref_feasibility_x[i], oa_data.ref_mip_solution[i])
+                JuMP.set_upper_bound(oa_data.ref_feasibility_x[i], oa_data.ref_mip_solution[i])
+            end
+        end
+    end
+    #set optimizer and solve
+    JuMP.set_optimizer(oa_data.ref_feasibility_model, model.options.nlp_solver)
+    JuMP.optimize!(oa_data.ref_feasibility_model)
+
+    if JuMP.termination_status(oa_data.ref_feasibility_model) == :OPTIMAL || JuMP.termination_status(oa_data.ref_feasibility_model) == :LOCALLY_SOLVED
+        @info "\n The reformulated feasibility problem has a feasible solution. \n"
+        oa_data.ref_feasibility_solution = JuMP.value.(oa_data.ref_feasibility_x)
+
+    else
+        @error "\n The reformulated feasibility problem is infeasible. \n"
+    end
+end
 
 
 
@@ -57,14 +82,17 @@ function oa_algorithm(model::MOI.AbstractOptimizer, op::OriginalProblem)
     construct_ref_mip_model(model, op, oa_data)
 
     oa_data.oa_started == false && oa_data.oa_started = true
-    oa_data.incumbent = solve_ref_nlp_model(model, oa_data)
+    #oa_data.incumbent = solve_ref_nlp_model(model, oa_data)
 
     while oa_data.oa_started
         oa_data.oa_iter += 1
+        #solve reformulated nlp problem
+        solve_ref_nlp_model(model, oa_data)
+        oa_data.nlp_infeasible && solve_ref_feasibility_model(model, oa_data)
         #update milp master problem
         add_ref_oa_cut(model, oa_data)
         #solve milp problem
-        oa_data.ref_mip_solution = solve_ref_milp_model(model, oa_data)
-
+        solve_ref_mip_model(model, oa_data)
+        oa_data.mip_infeasible && oa_data.oa_started = false
     end
 end
