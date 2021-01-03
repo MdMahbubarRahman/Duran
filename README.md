@@ -1,2 +1,2 @@
 # Duran
-Duran is a special purpose solver for MINLP problem.
+Duran is a special purpose solver for a class of MINLP problems.
