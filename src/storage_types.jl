@@ -133,6 +133,9 @@ mutable struct OAdata
     nlp_infeasible           :: Bool
     ref_feasibility_solution :: Vector{Float64}
 
+    int_idx                  :: Vector{Int64}
+    prev_ref_mip_solution    :: Vector{Float64}
+
     OAdata() = new()
 end
 

@@ -7,13 +7,13 @@ function init_oa_data(op::OriginalProblem, oa_data::OAdata)
     initiates OAdata structure using information of the OriginalProblem.
 """
 function init_oa_data(op::OriginalProblem, oa_data::OAdata)
-    oa_data.num_l_constr             = jp.num_l_constr
+    oa_data.num_l_constr             = op.num_l_constr
     oa_data.ref_l_var                = Float64[]
     oa_data.ref_u_var                = Float64[]
     oa_data.ref_num_var              = 0
     oa_data.ref_num_nl_constr        = 0
 
-    oa_data.obj_sense                = jp.obj_sense
+    oa_data.obj_sense                = op.obj_sense
 
     oa_data.oa_status                = :Unknown
     oa_data.oa_started               = false
@@ -31,6 +31,9 @@ function init_oa_data(op::OriginalProblem, oa_data::OAdata)
     oa_data.ref_nlp_solution         = Float64[]
     oa_data.nlp_infeasible           = false
     oa_data.ref_feasibility_solution = Float64[]
+
+    oa_dat.int_idx                   = filter(i -> (jp.var_type[i] in (:Int, :Bin)), 1:jp.num_var)
+    oa_data.prev_ref_mip_solution    = Float64[]
 end
 
 """
@@ -347,8 +350,10 @@ function get_binvar_and_objterms(obj_expr, m, op)
 end
 
 
-
-
+"""
+function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    This function genearates reformulated mip model.
+"""
 function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     oad.ref_mip_model = Model()
     lb = oad.ref_l_var
@@ -382,13 +387,19 @@ function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProbl
     oad.ref_mip_x = x
 end
 
+"""
+function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    This function facilates to add linear approximation cut to the reformulated mip model.
+"""
 function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     d=JuMP.NLPEvaluator(oad.ref_nlp_model)
     features = MOI.features_available(d)
     MOI.initialize(d, features)
 
     jac_IJ = MOI.jacobian_structure(d)
-    nlp_solution=ones(oad.ref_num_var)
+
+    !(oad.nlp_infeasible) && (nlp_solution = oad.ref_nlp_solution)
+    oad.nlp_infeasible && (nlp_solution = oad.ref_feasibility_solution[1:oad.ref_num_var])
 
     g_val = zeros(oad.ref_num_nl_constr)
     g_jac = zeros(length(jac_IJ))
@@ -420,8 +431,10 @@ function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::
 end
 
 
-
-
+"""
+function construct_ref_feasibility_model(oad::OAdata)
+    This function generates a feasibility model in case the nlp problem is infeasible.
+"""
 function construct_ref_feasibility_model(oad::OAdata)
     # in case of infeasible nlp problem, we need to solve a feasibility problem
     oad.ref_feasibility_model = Model()
