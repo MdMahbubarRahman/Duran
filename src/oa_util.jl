@@ -3,43 +3,50 @@ necessary functions for outer approximation framework
 """
 
 """
-function init_oa_data(op::OriginalProblem, oa_data::OAdata)
+function init_oad(op::OriginalProblem, oad::OAdata)
     initiates OAdata structure using information of the OriginalProblem.
 """
-function init_oa_data(op::OriginalProblem, oa_data::OAdata)
-    oa_data.num_l_constr             = jp.num_l_constr
-    oa_data.ref_l_var                = Float64[]
-    oa_data.ref_u_var                = Float64[]
-    oa_data.ref_num_var              = 0
-    oa_data.ref_num_nl_constr        = 0
+function init_oad(op::OriginalProblem, oad::OAdata)
+    oad.num_l_constr              = op.num_l_constr
+    oad.ref_l_var                 = Float64[]
+    oad.ref_u_var                 = Float64[]
+    oad.ref_num_var               = 0
+    oad.ref_num_nl_constr         = 0
 
-    oa_data.obj_sense                = jp.obj_sense
+    oad.obj_sense                 = op.obj_sense
 
-    oa_data.oa_status                = :Unknown
-    oa_data.oa_started               = false
-    oa_data.incumbent                = Float64[]
-    oa_data.new_incumbent            = false
-    oa_data.total_time               = 0
-    oa_data.obj_val                  = Inf
-    oa_data.obj_bound                = -Inf
-    oa_data.obj_gap                  = Inf
-    oa_data.oa_iter                  = 0
+    oad.oa_status                 = :Unknown
+    oad.oa_started                = false
+    oad.incumbent                 = Float64[]
+    oad.new_incumbent             = false
+    oad.total_time                = 0
+    oad.obj_val                   = Inf
+    oad.obj_bound                 = -Inf
+    oad.obj_gap                   = Inf
+    oad.oa_iter                   = 0
 
-    oa_data.milp_sol_available       = false
-    oa_data.ref_mip_solution         = Float64[]
-    oa_data.mip_infeasible           = false
-    oa_data.ref_nlp_solution         = Float64[]
-    oa_data.nlp_infeasible           = false
-    oa_data.ref_feasibility_solution = Float64[]
+    oad.milp_sol_available        = false
+    oad.ref_mip_solution          = Float64[]
+    oad.mip_infeasible            = false
+    oad.ref_nlp_solution          = Float64[]
+    oad.nlp_infeasible            = false
+    oad.ref_feasibility_solution  = Float64[]
+
+    oa_dat.int_idx                = filter(i -> (op.var_type[i] in (:Int, :Bin)), 1:op.num_var)
+    oad.prev_ref_mip_solution     = Float64[]
+
+    oad.ref_linear_le_constraints = []
+    oad.ref_linear_ge_constraints = []
+    oad.ref_linear_eq_constraints = []
 end
 
 """
-function construct_linear_model(optimizer::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
+function construct_linear_model(optimizer::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     this function generates a new mip_model with the linear constraints and linear objective function
     of the original model OriginalProblem.
 """
-function construct_linear_model(optimizer::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
-    oa_data.mip_model = Model()
+function construct_linear_model(optimizer::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    oad.mip_model = Model()
     lb = op.l_var
     ub = op.u_var
     push!(lb, -Inf)
@@ -47,15 +54,15 @@ function construct_linear_model(optimizer::MOI.AbstractOptimizer, op::OriginalPr
     #vartype = op.var_type
     #push!(vartype, :Cont)
     # all continuous we solve relaxation first
-    @variable(oa_data.mip_model, lb[i] <= x[i=1:(op.num_var+1)] <= ub[i])
+    @variable(oad.mip_model, lb[i] <= x[i=1:(op.num_var+1)] <= ub[i])
     for i in 1:length(op.var_type)
         op.var_type[i] == :Int && JuMP.set_integer(x[i])
         op.var_type[i] == :Bin && JuMP.set_binary(x[i])
     end
     # register function into the mip model
-    register_functions!(oa_data.mip_model, op.options.registered_functions)
+    register_functions!(oad.mip_model, op.options.registered_functions)
     # attach linear constraints to the mip model
-    backend1 = JuMP.backend(oa_data.mip_model);
+    backend1 = JuMP.backend(oad.mip_model);
     llc = optimizer.linear_le_constraints
     lgc = optimizer.linear_ge_constraints
     lec = optimizer.linear_eq_constraints
@@ -68,22 +75,22 @@ function construct_linear_model(optimizer::MOI.AbstractOptimizer, op::OriginalPr
     #set objective
     if op.has_nl_objective
         @info "the objective function is nonlinear.\n"
-        op.obj_sense == :Min && @objective(oa_data.mip_model, Min, x[op.num_var+1])
-        op.obj_sense == :Max && @objective(oa_data.mip_model, Max, x[op.num_var+1])
+        op.obj_sense == :Min && @objective(oad.mip_model, Min, x[op.num_var+1])
+        op.obj_sense == :Max && @objective(oad.mip_model, Max, x[op.num_var+1])
     else
         @info "the objective function is linear or quadratic.\n"
-        MOI.set(oa_data.mip_model, MOI.ObjectiveFunction{typeof(optimizer.objective)}(), optimizer.objective)
-        MOI.set(oa_data.mip_model, MOI.ObjectiveSense(), optimizer.sense)
+        MOI.set(oad.mip_model, MOI.ObjectiveFunction{typeof(optimizer.objective)}(), optimizer.objective)
+        MOI.set(oad.mip_model, MOI.ObjectiveSense(), optimizer.sense)
     end
-    oa_data.mip_x = x
+    oad.mip_x = x
 end
 
 """
-function add_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
+function add_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     this function generates oa cuts for nonlinear constraints and objective function and adds the cuts
     to the mip_model which is a milp model.
 """
-function add_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
+function add_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     jac_IJ = MOI.jacobian_structure(model.nlp_data.evaluator)
     nlp_solution=ones(op.num_var)
 
@@ -108,9 +115,9 @@ function add_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::
             new_rhs += coef_new[i][j] * nlp_solution[Int(varidx_new[i][j])]
         end
         if op.nlp_constr_type[i] == :(<=)
-            @constraint(oa_data.mip_model, dot(coef_new[i], oa_data.mip_x[varidx_new[i]]) <= new_rhs)
+            @constraint(oad.mip_model, dot(coef_new[i], oad.mip_x[varidx_new[i]]) <= new_rhs)
         else
-            @constraint(oa_data.mip_model, dot(coef_new[i], oa_data.mip_x[varidx_new[i]]) >= new_rhs)
+            @constraint(oad.mip_model, dot(coef_new[i], oad.mip_x[varidx_new[i]]) >= new_rhs)
         end
     end
 
@@ -131,26 +138,26 @@ function add_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::
         f_nab[op.num_var+1] = -1.0
 
         if op.obj_sense == :Max
-            @constraint(oa_data.mip_model, dot(f_nab, oa_data.mip_x[varidx]) >= new_rhs)
+            @constraint(oad.mip_model, dot(f_nab, oad.mip_x[varidx]) >= new_rhs)
         else
-            @constraint(oa_data.mip_model, dot(f_nab, oa_data.mip_x[varidx]) <= new_rhs)
+            @constraint(oad.mip_model, dot(f_nab, oad.mip_x[varidx]) <= new_rhs)
         end
     end
 end
 
 
 """
-function construct_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
+function construct_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     this function generates a nlp_model from the original model provided as OriginalProblem.
 """
-function construct_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
-    oa_data.nlp_model = Model()
+function construct_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    oad.nlp_model = Model()
     lb = op.l_var
     ub = op.u_var
-    @variable(oa_data.nlp_model, lb[i] <= x[i=1:op.num_var] <= ub[i])
-    register_functions!(oa_data.nlp_model, op.options.registered_functions)
+    @variable(oad.nlp_model, lb[i] <= x[i=1:op.num_var] <= ub[i])
+    register_functions!(oad.nlp_model, op.options.registered_functions)
 
-    backend2 = JuMP.backend(oa_data.nlp_model);
+    backend2 = JuMP.backend(oad.nlp_model);
     llc = model.linear_le_constraints
     lgc = model.linear_ge_constraints
     lec = model.linear_eq_constraints
@@ -163,9 +170,9 @@ function construct_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, 
 
     for i in 1:op.num_nl_constr
         constr_expr = MOI.constraint_expr(model.nlp_data.evaluator, i)
-        constr_expr = expr_dereferencing(constr_expr, oa_data.nlp_model)
+        constr_expr = expr_dereferencing(constr_expr, oad.nlp_model)
         try
-            JuMP.add_NL_constraint(oa_data.nlp_model, constr_expr)
+            JuMP.add_NL_constraint(oad.nlp_model, constr_expr)
         catch
             error("Have you registered a function? Then please register the function.\n")
         end
@@ -173,64 +180,64 @@ function construct_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, 
 
     if model.nlp_data.has_objective
         obj_expr = MOI.objective_expr(model.nlp_data.evaluator)
-        obj_expr = expr_dereferencing(obj_expr, oa_data.nlp_model)
+        obj_expr = expr_dereferencing(obj_expr, oad.nlp_model)
         try
-            JuMP.set_NL_objective(oa_data.nlp_model, model.sense, obj_expr)
+            JuMP.set_NL_objective(oad.nlp_model, model.sense, obj_expr)
         catch
             error("Have you registered a function? Then please register the function.\n")
         end
     elseif model.objective !== nothing
-        MOI.set(oa_data.nlp_model, MOI.ObjectiveFunction{typeof(model.objective)}(), model.objective)
-        MOI.set(oa_data.nlp_model, MOI.ObjectiveSense(), model.sense)
+        MOI.set(oad.nlp_model, MOI.ObjectiveFunction{typeof(model.objective)}(), model.objective)
+        MOI.set(oad.nlp_model, MOI.ObjectiveSense(), model.sense)
     end
 
-    oa_data.nlp_x = x
+    oad.nlp_x = x
 
     return nothing
 end
 
 
 """
-function solve_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
+function solve_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     this function solves mip_model with mixed interger solver.
 """
 
-function solve_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
-    JuMP.set_optimizer(oa_data.mip_model, model.options.mip_solver)
-    JuMP.optimize!(oa_data.mip_model)
+function solve_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    JuMP.set_optimizer(oad.mip_model, model.options.mip_solver)
+    JuMP.optimize!(oad.mip_model)
 
-    if termination_status(oa_data.mip_model) == :OPTIMAL || termination_status(oa_data.mip_model) == :LOCALLY_SOLVED
+    if termination_status(oad.mip_model) == :OPTIMAL || termination_status(oad.mip_model) == :LOCALLY_SOLVED
         @info "There is a feasible solution in the mip_model.\n"
-        value = JuMP.value.(oa_data.mip_x)
+        value = JuMP.value.(oad.mip_x)
         return value
     else
         @error "There is no feasible solution from mip_model. \n"
     end
-    #status = JuMP.primal_status(oa_data.solve_mip_model)
+    #status = JuMP.primal_status(oad.solve_mip_model)
 end
 
-function solve_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
-    JuMP.set_optimizer(oa_data.nlp_model, model.options.nlp_solver)
-    JuMP.optimize!(oa_data.nlp_model)
+function solve_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    JuMP.set_optimizer(oad.nlp_model, model.options.nlp_solver)
+    JuMP.optimize!(oad.nlp_model)
 
-    if termination_status(oa_data.nlp_model) == :OPTIMAL || termination_status(oa_data.nlp_model) == :LOCALLY_SOLVED
+    if termination_status(oad.nlp_model) == :OPTIMAL || termination_status(oad.nlp_model) == :LOCALLY_SOLVED
         @info "There is a feasible solution in the mip_model.\n"
-        value = JuMP.value.(oa_data.nlp_x)
+        value = JuMP.value.(oad.nlp_x)
         return value
     else
         @error "There is no feasible solution from mip_model. \n"
     end
-    #status = JuMP.primal_status(oa_data.solve_mip_model)
+    #status = JuMP.primal_status(oad.solve_mip_model)
 end
 
 
 
 """
-function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
+function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     this function generates a ref_nlp_model from the original model.
 """
-function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oa_data::OAdata)
-    oa_data.ref_nlp_model = Model()
+function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    oad.ref_nlp_model = Model()
     lb = op.l_var
     ub = op.u_var
     vartype = op.var_type
@@ -241,16 +248,16 @@ function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProbl
         push!(vartype, :Cont)
     end
 
-    oa_data.ref_l_var = lb
-    oa_data.ref_u_var = ub
-    oa_data.ref_var_type = vartype
+    oad.ref_l_var = lb
+    oad.ref_u_var = ub
+    oad.ref_var_type = vartype
 
-    @variable(oa_data.ref_nlp_model, lb[i] <= x[i=1:(op.num_var+op.nbinvars)] <= ub[i])
-    register_functions!(oa_data.ref_nlp_model, op.options.registered_functions)
+    @variable(oad.ref_nlp_model, lb[i] <= x[i=1:(op.num_var+op.nbinvars)] <= ub[i])
+    register_functions!(oad.ref_nlp_model, op.options.registered_functions)
 
-    oa_data.ref_num_var = length(x)
+    oad.ref_num_var = length(x)
 
-    backend = JuMP.backend(oa_data.ref_nlp_model);
+    backend = JuMP.backend(oad.ref_nlp_model);
     llc = model.linear_le_constraints
     lgc = model.linear_ge_constraints
     lec = model.linear_eq_constraints
@@ -263,9 +270,9 @@ function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProbl
 
     for i in 1:op.num_nl_constr
         constr_expr = MOI.constraint_expr(model.nlp_data.evaluator, i)
-        constr_expr = expr_dereferencing(constr_expr, oa_data.ref_nlp_model)
+        constr_expr = expr_dereferencing(constr_expr, oad.ref_nlp_model)
         try
-            JuMP.add_NL_constraint(oa_data.ref_nlp_model, constr_expr)
+            JuMP.add_NL_constraint(oad.ref_nlp_model, constr_expr)
         catch
             error("Have you registered a function? Then please register the function.\n")
         end
@@ -275,22 +282,22 @@ function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProbl
     if model.nlp_data.has_objective
         if op.obj_sense == :Max
             @info "The objective sense is Max. \n"
-            @objective(oa_data.ref_nlp_model, Max, sum(x[i] for i in (op.num_var+1):(op.num_var+op.nbinvars)))
+            @objective(oad.ref_nlp_model, Max, sum(x[i] for i in (op.num_var+1):(op.num_var+op.nbinvars)))
         elseif op.obj_sense == :Min
             @info "The objective sense is Min. \n"
-            @objective(oa_data.ref_nlp_model, Min, sum(x[i] for i in (op.num_var+1):(op.num_var+op.nbinvars)))
+            @objective(oad.ref_nlp_model, Min, sum(x[i] for i in (op.num_var+1):(op.num_var+op.nbinvars)))
         end
 
         obj_expr = MOI.objective_expr(model.nlp_data.evaluator)
-        moi_bin_vars, moi_obj_terms = get_binvar_and_objterms(obj_expr, oa_data.ref_nlp_model, op)
+        moi_bin_vars, moi_obj_terms = get_binvar_and_objterms(obj_expr, oad.ref_nlp_model, op)
 
         siz = length(moi_bin_vars)
         jump_bin_vars = []
         jump_obj_terms = []
         for i in 1:siz
-            jump_bin = JuMP.VariableRef(oa_data.ref_nlp_model, moi_bin_vars[i].args[2])
+            jump_bin = JuMP.VariableRef(oad.ref_nlp_model, moi_bin_vars[i].args[2])
             push!(jump_bin_vars, jump_bin)
-            jump_exp = expr_dereferencing(moi_obj_terms[i], oa_data.ref_nlp_model)
+            jump_exp = expr_dereferencing(moi_obj_terms[i], oad.ref_nlp_model)
             push!(jump_obj_terms, jump_exp)
         end
         num_nl_constr = num_nl_constr+siz
@@ -298,19 +305,19 @@ function construct_ref_nlp_model(model::MOI.AbstractOptimizer, op::OriginalProbl
         for i in 1:siz
             L=-100000
             U=+100000
-            JuMP.@constraint(oa_data.ref_nlp_model, x[i+op.num_var]-jump_bin_vars[i]*L >= 0)
+            JuMP.@constraint(oad.ref_nlp_model, x[i+op.num_var]-jump_bin_vars[i]*L >= 0)
             exp = :($(x[i+op.num_var])-($(jump_bin_vars[i])-$(1))*$(U)-$(jump_obj_terms[i]) >= 0)
-            JuMP.add_NL_constraint(oa_data.ref_nlp_model, exp)
+            JuMP.add_NL_constraint(oad.ref_nlp_model, exp)
             push!(ref_nlpcontr_type, :>=)
         end
-        oa_data.ref_nlp_constr_type = ref_nlpcontr_type
+        oad.ref_nlp_constr_type = ref_nlpcontr_type
 
     elseif model.objective !== nothing
-        MOI.set(oa_data.ref_nlp_model, MOI.ObjectiveFunction{typeof(model.objective)}(), model.objective)
-        MOI.set(oa_data.ref_nlp_model, MOI.ObjectiveSense(), model.sense)
+        MOI.set(oad.ref_nlp_model, MOI.ObjectiveFunction{typeof(model.objective)}(), model.objective)
+        MOI.set(oad.ref_nlp_model, MOI.ObjectiveSense(), model.sense)
     end
-    oa_data.ref_num_nl_constr = num_nl_constr
-    oa_data.ref_nlp_x = x
+    oad.ref_num_nl_constr = num_nl_constr
+    oad.ref_nlp_x = x
 
     return nothing
 end
@@ -347,8 +354,10 @@ function get_binvar_and_objterms(obj_expr, m, op)
 end
 
 
-
-
+"""
+function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    This function genearates reformulated mip model.
+"""
 function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     oad.ref_mip_model = Model()
     lb = oad.ref_l_var
@@ -382,13 +391,19 @@ function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProbl
     oad.ref_mip_x = x
 end
 
+"""
+function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
+    This function facilates to add linear approximation cut to the reformulated mip model.
+"""
 function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::OAdata)
     d=JuMP.NLPEvaluator(oad.ref_nlp_model)
     features = MOI.features_available(d)
     MOI.initialize(d, features)
 
     jac_IJ = MOI.jacobian_structure(d)
-    nlp_solution=ones(oad.ref_num_var)
+
+    !(oad.nlp_infeasible) && (nlp_solution = oad.ref_nlp_solution)
+    oad.nlp_infeasible && (nlp_solution = oad.ref_feasibility_solution[1:oad.ref_num_var])
 
     g_val = zeros(oad.ref_num_nl_constr)
     g_jac = zeros(length(jac_IJ))
@@ -420,8 +435,10 @@ function add_ref_oa_cut(model::MOI.AbstractOptimizer, op::OriginalProblem, oad::
 end
 
 
-
-
+"""
+function construct_ref_feasibility_model(oad::OAdata)
+    This function generates a feasibility model in case the nlp problem is infeasible.
+"""
 function construct_ref_feasibility_model(oad::OAdata)
     # in case of infeasible nlp problem, we need to solve a feasibility problem
     oad.ref_feasibility_model = Model()
@@ -450,4 +467,31 @@ function construct_ref_feasibility_model(oad::OAdata)
     oad.obj_sense == :Max && JuMP.@objective(oad.ref_feasibility_model, Max, sum(x[i] for i in (oad.ref_num_var+1):(oad.ref_num_var+oad.ref_num_nl_constr)))
 
     oad.ref_feasibility_x = x
+end
+
+
+
+"""
+function reserve_ref_linear_constraints(oad::OAdata)
+    This function saves linear constraints of the reformulated nlp model to the outer approximation data structure.
+    This constraints are in MOI format and later will be used to generate reformulated mip model.
+"""
+function reserve_ref_linear_constraints(oad::OAdata)
+    #list of different types of constraints
+    constr_types = JuMP.list_of_constraint_types(oad.ref_nlp_model)
+    #number of different constraint types
+    siz = length(constr_types)
+    #reserve constraints for each type
+    for i in 1:siz
+        num_constr = JuMP.num_constraints(oad.ref_nlp_model, constr_types[i][1], constr_types[i][2])
+        constrs    = JuMP.all_constraints(oad.ref_nlp_model, constr_types[i][1], constr_types[i][2])
+        for j in 1:num_constr
+            con_obj = JuMP.constraint_object(constrs[j])
+            func    = JuMP.moi_function(con_obj.func)
+            set     = con_obj.set
+            (constr_types[i][2] == MOI.EqualTo{Float64}) && push!(oad.ref_linear_eq_constraints, (func, set))
+            (constr_types[i][2] == MOI.LessThan{Float64}) && push!(oad.ref_linear_le_constraints, (func, set))
+            (constr_types[i][2] == MOI.GreaterThan{Float64}) && push!(oad.ref_linear_ge_constraints, (func, set))
+        end
+    end
 end
