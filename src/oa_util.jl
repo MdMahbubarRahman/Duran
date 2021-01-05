@@ -7,33 +7,37 @@ function init_oad(op::OriginalProblem, oad::OAdata)
     initiates OAdata structure using information of the OriginalProblem.
 """
 function init_oad(op::OriginalProblem, oad::OAdata)
-    oad.num_l_constr             = op.num_l_constr
-    oad.ref_l_var                = Float64[]
-    oad.ref_u_var                = Float64[]
-    oad.ref_num_var              = 0
-    oad.ref_num_nl_constr        = 0
+    oad.num_l_constr              = op.num_l_constr
+    oad.ref_l_var                 = Float64[]
+    oad.ref_u_var                 = Float64[]
+    oad.ref_num_var               = 0
+    oad.ref_num_nl_constr         = 0
 
-    oad.obj_sense                = op.obj_sense
+    oad.obj_sense                 = op.obj_sense
 
-    oad.oa_status                = :Unknown
-    oad.oa_started               = false
-    oad.incumbent                = Float64[]
-    oad.new_incumbent            = false
-    oad.total_time               = 0
-    oad.obj_val                  = Inf
-    oad.obj_bound                = -Inf
-    oad.obj_gap                  = Inf
-    oad.oa_iter                  = 0
+    oad.oa_status                 = :Unknown
+    oad.oa_started                = false
+    oad.incumbent                 = Float64[]
+    oad.new_incumbent             = false
+    oad.total_time                = 0
+    oad.obj_val                   = Inf
+    oad.obj_bound                 = -Inf
+    oad.obj_gap                   = Inf
+    oad.oa_iter                   = 0
 
-    oad.milp_sol_available       = false
-    oad.ref_mip_solution         = Float64[]
-    oad.mip_infeasible           = false
-    oad.ref_nlp_solution         = Float64[]
-    oad.nlp_infeasible           = false
-    oad.ref_feasibility_solution = Float64[]
+    oad.milp_sol_available        = false
+    oad.ref_mip_solution          = Float64[]
+    oad.mip_infeasible            = false
+    oad.ref_nlp_solution          = Float64[]
+    oad.nlp_infeasible            = false
+    oad.ref_feasibility_solution  = Float64[]
 
-    oa_dat.int_idx                   = filter(i -> (op.var_type[i] in (:Int, :Bin)), 1:op.num_var)
-    oad.prev_ref_mip_solution    = Float64[]
+    oa_dat.int_idx                = filter(i -> (op.var_type[i] in (:Int, :Bin)), 1:op.num_var)
+    oad.prev_ref_mip_solution     = Float64[]
+
+    oad.ref_linear_le_constraints = []
+    oad.ref_linear_ge_constraints = []
+    oad.ref_linear_eq_constraints = []
 end
 
 """
@@ -463,4 +467,31 @@ function construct_ref_feasibility_model(oad::OAdata)
     oad.obj_sense == :Max && JuMP.@objective(oad.ref_feasibility_model, Max, sum(x[i] for i in (oad.ref_num_var+1):(oad.ref_num_var+oad.ref_num_nl_constr)))
 
     oad.ref_feasibility_x = x
+end
+
+
+
+"""
+function reserve_ref_linear_constraints(oad::OAdata)
+    This function saves linear constraints of the reformulated nlp model to the outer approximation data structure.
+    This constraints are in MOI format and later will be used to generate reformulated mip model.
+"""
+function reserve_ref_linear_constraints(oad::OAdata)
+    #list of different types of constraints
+    constr_types = JuMP.list_of_constraint_types(oad.ref_nlp_model)
+    #number of different constraint types
+    siz = length(constr_types)
+    #reserve constraints for each type
+    for i in 1:siz
+        num_constr = JuMP.num_constraints(oad.ref_nlp_model, constr_types[i][1], constr_types[i][2])
+        constrs    = JuMP.all_constraints(oad.ref_nlp_model, constr_types[i][1], constr_types[i][2])
+        for j in 1:num_constr
+            con_obj = JuMP.constraint_object(constrs[j])
+            func    = JuMP.moi_function(con_obj.func)
+            set     = con_obj.set
+            (constr_types[i][2] == MOI.EqualTo{Float64}) && push!(oad.ref_linear_eq_constraints, (func, set))
+            (constr_types[i][2] == MOI.LessThan{Float64}) && push!(oad.ref_linear_le_constraints, (func, set))
+            (constr_types[i][2] == MOI.GreaterThan{Float64}) && push!(oad.ref_linear_ge_constraints, (func, set))
+        end
+    end
 end

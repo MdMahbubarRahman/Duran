@@ -93,48 +93,52 @@ end
 
 #OriginalProblem
 mutable struct OAdata
-    mip_model                :: JuMP.Model
-    nlp_model                :: JuMP.Model
-    ref_nlp_model            :: JuMP.Model
-    ref_mip_model            :: JuMP.Model
-    ref_feasibility_model    :: JuMP.Model
+    mip_model                 :: JuMP.Model
+    nlp_model                 :: JuMP.Model
+    ref_nlp_model             :: JuMP.Model
+    ref_mip_model             :: JuMP.Model
+    ref_feasibility_model     :: JuMP.Model
 
-    mip_x                    :: Vector{JuMP.VariableRef}
-    nlp_x                    :: Vector{JuMP.VariableRef}
-    ref_nlp_x                :: Vector{JuMP.VariableRef}
-    ref_mip_x                :: Vector{JuMP.VariableRef}
-    ref_feasibility_x        :: Vector{JuMP.VariableRef}
+    mip_x                     :: Vector{JuMP.VariableRef}
+    nlp_x                     :: Vector{JuMP.VariableRef}
+    ref_nlp_x                 :: Vector{JuMP.VariableRef}
+    ref_mip_x                 :: Vector{JuMP.VariableRef}
+    ref_feasibility_x         :: Vector{JuMP.VariableRef}
 
-    num_l_constr             :: Int
+    num_l_constr              :: Int
 
-    ref_l_var                :: Vector{Float64}
-    ref_u_var                :: Vector{Float64}
-    ref_var_type             :: Vector{Symbol}
-    ref_num_var              :: Int
-    ref_num_nl_constr        :: Int
-    ref_nlp_constr_type      :: Vector{Symbol}
+    ref_l_var                 :: Vector{Float64}
+    ref_u_var                 :: Vector{Float64}
+    ref_var_type              :: Vector{Symbol}
+    ref_num_var               :: Int
+    ref_num_nl_constr         :: Int
+    ref_nlp_constr_type       :: Vector{Symbol}
 
-    obj_sense                :: Symbol
+    obj_sense                 :: Symbol
 
-    oa_status                :: Symbol
-    oa_started               :: Bool
-    incumbent                :: Vector{Float64}
-    new_incumbent            :: Bool
-    total_time               :: Float64
-    obj_val                  :: Float64
-    obj_bound                :: Float64
-    obj_gap                  :: Float64
-    oa_iter                  :: Int64
+    oa_status                 :: Symbol
+    oa_started                :: Bool
+    incumbent                 :: Vector{Float64}
+    new_incumbent             :: Bool
+    total_time                :: Float64
+    obj_val                   :: Float64
+    obj_bound                 :: Float64
+    obj_gap                   :: Float64
+    oa_iter                   :: Int64
 
-    milp_sol_available       :: Bool
-    ref_mip_solution         :: Vector{Float64}
-    mip_infeasible           :: Bool
-    ref_nlp_solution         :: Vector{Float64}
-    nlp_infeasible           :: Bool
-    ref_feasibility_solution :: Vector{Float64}
+    milp_sol_available        :: Bool
+    ref_mip_solution          :: Vector{Float64}
+    mip_infeasible            :: Bool
+    ref_nlp_solution          :: Vector{Float64}
+    nlp_infeasible            :: Bool
+    ref_feasibility_solution  :: Vector{Float64}
 
-    int_idx                  :: Vector{Int64}
-    prev_ref_mip_solution    :: Vector{Float64}
+    int_idx                   :: Vector{Int64}
+    prev_ref_mip_solution     :: Vector{Float64}
+
+    ref_linear_le_constraints ::Vector{Tuple{SAF, MOI.LessThan{Float64}}}
+    ref_linear_ge_constraints ::Vector{Tuple{SAF, MOI.GreaterThan{Float64}}}
+    ref_linear_eq_constraints ::Vector{Tuple{SAF, MOI.EqualTo{Float64}}}
 
     OAdata() = new()
 end
