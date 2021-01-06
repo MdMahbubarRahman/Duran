@@ -93,7 +93,7 @@ end
 
 
 
-function create_root_model!(optimizer::MOI.AbstractOptimizer, op::OriginalProblem; fix_start=false)
+function create_original_model!(optimizer::MOI.AbstractOptimizer, op::OriginalProblem; fix_start=false)
     ps = op.options.log_levels
 
     op.model = Model()

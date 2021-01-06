@@ -32,7 +32,7 @@ function init_oad(op::OriginalProblem, oad::OAdata)
     oad.nlp_infeasible            = false
     oad.ref_feasibility_solution  = Float64[]
 
-    oa_dat.int_idx                = filter(i -> (op.var_type[i] in (:Int, :Bin)), 1:op.num_var)
+    oad.int_idx                   = filter(i -> (op.var_type[i] in (:Int, :Bin)), 1:op.num_var)
     oad.prev_ref_mip_solution     = Float64[]
 
     oad.ref_linear_le_constraints = []
@@ -362,33 +362,32 @@ function construct_ref_mip_model(model::MOI.AbstractOptimizer, op::OriginalProbl
     oad.ref_mip_model = Model()
     lb = oad.ref_l_var
     ub = oad.ref_u_var
-    vartype = oad.ref_var_type
     # all continuous we solve relaxation first
-    @variable(oad.ref_mip_model, lb[i] <= x[i=1:oad.ref_num_var] <= ub[i])
-    for i in 1:length(oad.ref_var_type)
-        oad.ref_var_type[i] == :Int && JuMP.set_integer(x[i])
-        oad.ref_var_type[i] == :Bin && JuMP.set_binary(x[i])
-    end
+    @variable(oad.ref_mip_model, lb[i] <= x[i=1:oad.ref_num_var] <= ub[i], binary =oad.ref_var_type[i] == :Bin, integer = oad.ref_var_type[i] == :Int)
     # register function into the mip model
     register_functions!(oad.ref_mip_model, op.options.registered_functions)
     # attach linear constraints to the mip model
     backend = JuMP.backend(oad.ref_mip_model);
-    llc = model.linear_le_constraints
-    lgc = model.linear_ge_constraints
-    lec = model.linear_eq_constraints
-    #add linear constraints to the mip model
+    llc = oad.ref_linear_le_constraints
+    lgc = oad.ref_linear_ge_constraints
+    lec = oad.ref_linear_eq_constraints
     for constr_type in [llc, lgc, lec]
         for constr in constr_type
             MOI.add_constraint(backend, constr[1], constr[2])
         end
     end
-
+    #set var type
+    for i in 1:length(oad.ref_var_type)
+        oad.ref_var_type[i] == :Int && JuMP.set_integer(x[i])
+        oad.ref_var_type[i] == :Bin && JuMP.set_binary(x[i])
+    end
     #set objective
     func = JuMP.objective_function(oad.ref_nlp_model)
     func = JuMP.moi_function(func)
     MOI.set(oad.ref_mip_model, MOI.ObjectiveFunction{typeof(func)}(), func)
     MOI.set(oad.ref_mip_model, MOI.ObjectiveSense(), model.sense)
     oad.ref_mip_x = x
+    oad.prev_ref_mip_solution = rand(oad.ref_num_var)
 end
 
 """
@@ -451,14 +450,15 @@ function construct_ref_feasibility_model(oad::OAdata)
     #define constraints
     for i in 1:jp.ref_num_nl_constr
         constr_expr = MOI.constraint_expr(d, i)
-        constr_expr = expr_dereferencing(constr_expr[2], oad.ref_feasibility_model)
+        con_expr = expr_dereferencing(constr_expr.args[2], oad.ref_feasibility_model)
+        #print($con_expr, "\n")
         if constr_expr.args[1] == :(<=)
-            con_ex = :($(constr_expr) <= $(x[i+oad.ref_num_var]))
+            con_ex = :($(con_expr) <= $(x[i+oad.ref_num_var]))
             JuMP.add_NL_constraint(oad.ref_feasibility_model, con_ex)
         elseif constr_expr.args[1] == :(>=)
-            con_ex = :(-$(constr_expr) <= -$(x[i+oad.ref_num_var]))
+            con_ex = :($(con_expr) >= $(x[i+oad.ref_num_var]))
             JuMP.add_NL_constraint(oad.ref_feasibility_model, con_ex)
-        else
+        elseif constr_expr.args[1] == :(==)
             @error "\n Nonlinear constarint should not be equality constarint. \n"
         end
     end

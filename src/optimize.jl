@@ -296,11 +296,9 @@ end
 
 
 """
-``MOI.optimize!()`` for HybridMINLPSolver
+``MOI.optimize!()`` for Duran Solver
 """
 function MOI.optimize!(model::Optimizer)
-    print(model)
-    print("How are you doing now as you got what you wanted\n")
     MOI.initialize(model.nlp_data.evaluator, [:Grad, :Jac, :ExprGraph])
     if ~isa(model.nlp_data.evaluator, EmptyNLPEvaluator)
     else
@@ -308,72 +306,13 @@ function MOI.optimize!(model::Optimizer)
     end
     model.inner = OriginalProblem()
     @views op = model.inner
-    init_hybrid_problem!(op, model)
-    incumbent = nothing
-    create_root_model!(model, op)
-    fix_primal_start!(op)
-    print(op.model)
-    #incumbent = solve_root_incumbent_model(op)
-    #unfix_primal_start!(op)
-    #backend                = JuMP.backend(op.model)
-    #print(backend)
-    print("\n")
-    print(model.nlp_data.constraint_bounds)
-    print("\n")
-    IJ_jac = MOI.jacobian_structure(model.nlp_data.evaluator)
-    print("\n")
-    print(IJ_jac)
-    print("\n")
-    incum=[0.0, 0.0, 0.0, 0.0, 0.0]
-    val=zeros(1, length(IJ_jac))
-    MOI.eval_constraint_jacobian(model.nlp_data.evaluator, val, incum)
-    print("\n")
-    print(val)
-    print("\n")
-    print(op.num_nl_constr, "\n")
-    print("\n")
-    print(op.num_constr, "\n")
-
-    #this part creates linear model
-    oa_data=OAdata()
-    init_oa_data(op::OriginalProblem, oa_data)
-    construct_linear_model(model, op, oa_data)
-    add_oa_cut(model, op, oa_data)
-    print("\n The mip model is the following \n")
-    print(oa_data.mip_model)
-    #JuMP.optimize!(oa_data.mip_model)
-    #println(JuMP.value.(oa_data.mip_x))
-    construct_nlp_model(model, op, oa_data)
-    print(oa_data.nlp_model)
-
-    reformulated_nlp_model(model, op, oa_data)
-    print("The reformulated nlp problem is the following: \n")
-    print(oa_data.ref_nlp_model)
-    """
-    constr_expr = MOI.constraint_expr(model.nlp_data.evaluator, 1)
-    print(constr_expr, "\n")
-
-    obj_expr = MOI.objective_expr(model.nlp_data.evaluator)
-    print(obj_expr, "\n")
-
-    as, bs = get_binvar_and_objterms(obj_expr, oa_data.nlp_model, op)
-    cs=[]
-    b = length(as)
-    for i in 1:b
-        #expr_dereferencing(as[i], oa_data.nlp_model)
-        expbs = expr_dereferencing(bs[i], oa_data.nlp_model)
-        push!(cs, expbs)
-    end
-    JuMP.@variable(oa_data.nlp_model, y[1:b])
-    for i in 1:b
-        exp = :((y[i])-(cs[i]) >= 0)
-        JuMP.add_NL_constraint(oa_data.nlp_model, exp)
-    end
-    #JuMP.@NLexpression(oa_data.nlp_model, exp2, y-(as[1]-1))
-    #JuMP.@NLexpression(oa_data.nlp_model, exp1, (bs[1]))
-    #JuMP.add_NL_constraint(oa_data.nlp_model, exp)
-    print(oa_data.nlp_model)
-    """
+    #initiate to replicate original problem
+    init_original_problem!(op, model)
+    #complete original problem
+    create_original_model!(model, op)
+    print("This is the original problem \n", op.model)
+    #perform outer approximation algorithm
+    oa_algorithm(model, jp)
 end
 
 getnsolutions(m::OriginalProblem) = m.nsolutions
