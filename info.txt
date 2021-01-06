@@ -1,0 +1,5 @@
+This branch offers extra functionality in solving mixed integer 
+linear problem while running the outer approximation algorithm. 
+Specially we try to implement customized dantzig-wolfe decomposition
+or column generation technique to solve our special structured 
+milp problem.
