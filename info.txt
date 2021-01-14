@@ -1,0 +1,6 @@
+This branch offers extra functionality in solving mixed integer 
+linear problem while running the outer approximation algorithm. 
+Specially we try to implement pricing algorithm which is the combination of 
+branch and bound, and  dantzig-wolfe decomposition
+or column generation to solve our special structured 
+milp problem.

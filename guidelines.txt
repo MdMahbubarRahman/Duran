@@ -1,0 +1,17 @@
+We are going to implement pricing algoirthm. The abstract idea is:
+1. implement branch and bound algorithm
+2. in each node of the branch and bound algorithm solve lp model using column generation algorithm
+
+
+For column generation:
+   a) create a function which would take a lp model as argument and solve the lp using column generation algorithm and return solution of the model
+   b) create a function to decomposte lp model and generate master problem and pricing subproblem(s) 
+
+
+For branch and bound:
+   a) generate functions for different branching strategies
+   b) generate options for different search strategies
+   c) generate functions for different node selection strategies
+
+For pricing algorithm:
+   Combine branch and bound and column generation algorithm in such a way that it can efficiently solve mixed integer linear programming problem.
