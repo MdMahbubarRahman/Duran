@@ -140,7 +140,7 @@ mutable struct CGdata
     pricing_sub_extm_dir_model       :: JuMP.Model
 
     lp_x                             :: Vector{JuMP.VariableRef}
-    dw_main_x                        :: Vector{JuMP.VariableRef}
+    dw_main_x                        #:: Vector{JuMP.VariableRef}
     pricing_sub_x                    :: Vector{JuMP.VariableRef}
     pricing_sub_extm_dir_x
 
@@ -160,7 +160,7 @@ mutable struct CGdata
     dw_main_eq_constr                :: Vector{Tuple{SAF, MOI.EqualTo{Float64}}}
     pricing_sub_le_constr            :: Vector{Tuple{SAF, MOI.LessThan{Float64}}}
     pricing_sub_ge_constr            :: Vector{Tuple{SAF, MOI.GreaterThan{Float64}}}
-    pricing_sub_ge_constr            :: Vector{Tuple{SAF, MOI.EqualTo{Float64}}}
+    pricing_sub_eq_constr            :: Vector{Tuple{SAF, MOI.EqualTo{Float64}}}
 
     lp_obj_sense                     :: Symbol
     dw_main_obj_sense                :: Symbol
@@ -188,7 +188,9 @@ mutable struct CGdata
     obj_val                          :: Float64
     obj_bound                        :: Float64
     obj_gap                          :: Float64
-    oa_iter                          :: Int64
+
+    num_oa_iter                      :: Int64
+    num_cg_iter                      :: Int64
 
     moi_bin_var                      :: Vector{Any}
     jump_bin_var                     :: Vector{Any}
@@ -209,6 +211,13 @@ mutable struct CGdata
     extr_ptn_sol                     :: Vector{psmSolutionObj}
     extr_dir_sol                     :: Vector{psmExtrmDirSolutionObj}
     dw_main_sol                      :: Vector{dwmSolutionObj}
+
+    psm_feasible                     :: Bool
+    psm_extr_dir_feasible            :: Bool
+    best_solution                    :: Vector{Float64}
+
+    λ_val                            :: Vector{Float64}
+    μ_val                            :: Vector{Float64}
 
     CGdata() = new()
 end
@@ -258,7 +267,9 @@ function init_cg_data(cgd::CGdata, oad::OAdata)
     cgd.obj_val                          = Inf
     cgd.obj_bound                        = -Inf
     cgd.obj_gap                          = Inf
-    cgd.cg_iter                          = 0
+
+    cgd.num_oa_iter                      = oad.oa_iter
+    cgd.num_cg_iter                      = 0
 
     cgd.moi_bin_var                      = oad.moi_bin_var
     cgd.jump_bin_var                     = []
@@ -279,6 +290,14 @@ function init_cg_data(cgd::CGdata, oad::OAdata)
     cgd.extr_ptn_sol                     = []
     cgd.extr_dir_sol                     = []
     cgd.dw_main_sol                      = []
+    cgd.dw_main_x                        = []
+
+    cgd.psm_feasible                     = false
+    cgd.psm_extr_dir_feasible            = false
+    cgd.best_solution                    = []
+
+    cgd.λ_val                            = []
+    cgd.μ_val                            = []
 end
 
 
@@ -291,10 +310,12 @@ function decompose_lp_model(model::JuMP.Model, optimizer::MOI.AbstractOptimizer,
     cgd.pricing_sub_ge_constr = optimizer.linear_ge_constraints
     cgd.pricing_sub_eq_constr = optimizer.linear_eq_constraints
     #set obj sense
-    cgd.lp_obj_sense       = JuMP.objective_sense(mod)
+    #obj_sense       = JuMP.objective_sense(model)
+    (JuMP.objective_sense(model) == MOI.MAX_SENSE) && (cgd.lp_obj_sense = :MAX_SENSE)
+    (JuMP.objective_sense(model) == MOI.MIN_SENSE) && (cgd.lp_obj_sense = :MIN_SENSE)
     cgd.dw_main_obj_sense  = cgd.lp_obj_sense
-    (cgd.dw_main_obj_sense == MOI.MIN_SENSE) && (cgd.pricing_sub_obj_sense = MOI.MAX_SENSE)
-    (cgd.dw_main_obj_sense == MOI.MAX_SENSE) && (cgd.pricing_sub_obj_sense = MOI.MIN_SENSE)
+    (cgd.dw_main_obj_sense == :MIN_SENSE) && (cgd.pricing_sub_obj_sense = :MIN_SENSE)
+    (cgd.dw_main_obj_sense == :MAX_SENSE) && (cgd.pricing_sub_obj_sense = :MAX_SENSE)
     #set num var
     cgd.lp_num_var              = JuMP.num_variables(model)
     cgd.pricing_sub_num_var     = length(optimizer.variable_info)
@@ -325,13 +346,14 @@ This function generates initial Dantzig-Wolfe relaxed main problem.
 """
 function construct_dw_main_model(cgd::CGdata)
     #initial vals
-    nλ = 1000 #max 1000 extreme points
-    nμ = 1000 #max 1000 extreme directions
+    nλ = 100 #max 1000 extreme points
+    nμ = 100 #max 1000 extreme directions
     nbin         = length(cgd.jump_bin_var)
-    num_constr   = cgd.dw_main_num_constr
+    #num_constr   = cgd.dw_main_num_constr
     constr_type  = cgd.dw_main_constr_type
     rhs          = cgd.dw_main_constr_rhs
-    nitr         = cgd.num_oa_itr
+    nitr         = cgd.num_oa_iter
+    num_constr   = nbin+nbin*nitr+1
     #the dw relaxed main problem
     dwm = Model()
     @variable(dwm, λ[1:nλ] >= 0)
@@ -343,17 +365,17 @@ function construct_dw_main_model(cgd::CGdata)
     constr_set3 = []
     #define dwd constr for "t >= yL" set of constr
     for i in 1:nbin
-        ep = 0
+        ep = JuMP.@expression(dwm, 0)
         for k in 1:nλ
             cp = 0
-            ep = ep+@expression(dwm, cp*λ[k])
+            ep = ep+JuMP.@expression(dwm, cp*λ[k])
         end
-        ed = 0
+        ed = JuMP.@expression(dwm, 0)
         for l in 1:nμ
             cd = 0
-            ed = ed+@expression(dwm, cd*μ[l])
+            ed = ed+JuMP.@expression(dwm, cd*μ[l])
         end
-        con=@constraint(dwm, ep+ed-t[i] <= 0.0)
+        con=@constraint(dwm, -ep-ed+t[i] >= 0.0)
         push!(constr_set1, con)
     end
     #define dwd constr for "t >= (y-1)U+∇f(̄x)(x-̄x)" set of constr
@@ -361,21 +383,21 @@ function construct_dw_main_model(cgd::CGdata)
     for i in 1:nitr
         for j in 1:nbin
             indx += 1
-            ep = 0
+            ep = JuMP.@expression(dwm, 0)
             for k in 1:nλ
                 cp = 0
-                ep = ep+@expression(dwm, cp*λ[k])
+                ep = ep+JuMP.@expression(dwm, cp*λ[k])
             end
-            ed = 0
+            ed = JuMP.@expression(dwm, 0)
             for l in 1:nμ
                 cd = 0
-                ed = ed+@expression(dwm, cd*μ[l])
+                ed = ed+JuMP.@expression(dwm, cd*μ[l])
             end
             if constr_type[indx] == :(<=)
                 con=@constraint(dwm, ep+ed-t[j] <= rhs[indx])
                 push!(constr_set2, con)
             elseif constr_type[indx] == :(>=)
-                con=@constraint(dwm, ep+ed-t[j] >= rhs[indx])
+                con=@constraint(dwm, ep+ed+t[j] >= rhs[indx])
                 push!(constr_set2, con)
             end
         end
@@ -385,8 +407,8 @@ function construct_dw_main_model(cgd::CGdata)
     push!(constr_set3, con)
     constr_ref = [constr_set1, constr_set2, constr_set3]
     #define obj func
-    (cgd.dw_main_obj_sense == MOI.MIN_SENSE) && @objective(dwm, Min, sum(t[i] for i in 1:nbin))
-    (cgd.dw_main_obj_sense == MOI.MAX_SENSE) && @objective(dwm, Max, sum(t[i] for i in 1:nbin))
+    (cgd.dw_main_obj_sense == :MIN_SENSE) && @objective(dwm, Min, sum(t[i] for i in 1:nbin))
+    (cgd.dw_main_obj_sense == :MAX_SENSE) && @objective(dwm, Max, sum(t[i] for i in 1:nbin))
     cgd.dw_main_constr_ref = constr_ref
     cgd.dw_main_model = dwm
     cgd.dw_main_x = [λ, μ, t]
@@ -401,7 +423,7 @@ function construct_pricing_sub_model(cgd)
     lb = cgd.pricing_sub_l_var
     ub = cgd.pricing_sub_u_var
     psm = Model()
-    @variable(psm, lb <= x[1:cgd.pricing_sub_num_var] <= ub)
+    @variable(psm, lb[i] <= x[i=1:cgd.pricing_sub_num_var] <= ub[i])
     backend = JuMP.backend(psm)
     llc = cgd.pricing_sub_le_constr
     lgc = cgd.pricing_sub_ge_constr
@@ -478,9 +500,9 @@ function construct_pricing_sub_model_for_extreme_directions(cgd::CGdata)
         for j in 1:num_constr
             con_obj = JuMP.constraint_object(constrs[j])
             func    = JuMP.moi_function(con_obj.func)
-            exp = @expression(psmed, 0)
+            exp = JuMP.@expression(psmed, 0)
             for term in func.terms
-                exp = exp+@expression(psmed, term.coefficient*(y[term.variable_index.value]-z[term.variable_index.value]))
+                exp = exp+JuMP.@expression(psmed, term.coefficient*(y[term.variable_index.value]-z[term.variable_index.value]))
             end
             (constr_types[i][2] == MOI.LessThan{Float64}) && @constraint(psmed, exp <= 0)
             (constr_types[i][2] == MOI.GreaterThan{Float64}) && @constraint(psmed, -1*exp <= 0)
