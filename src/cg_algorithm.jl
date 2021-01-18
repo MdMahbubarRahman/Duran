@@ -23,13 +23,13 @@ function solve_dw_main_model(cgd::CGdata, mip_d::MIPModelInfo, optimizer::MOI.Ab
     if cgd.psm_feasible == true
         for i in 1:nbin
             #val = cgd.obj_terms_lower_bound[i]*extr_ptn_sol[disc2var_idx[i]]
-            val = -1*cgd.obj_terms_lower_bound[i]*extr_ptn_sol[i]
+            val = -1*mip_d.obj_terms_lower_bound[i]*extr_ptn_sol[i]
             JuMP.set_normalized_coefficient(cons1[i], λ[λ_counter], val)
         end
     elseif cgd.psm_extr_dir_feasible == true
         for i in 1:nbin
             #val = cgd.obj_terms_lower_bound[i]*extr_dir_sol[disc2var_idx[i]]
-            val = -1*cgd.obj_terms_lower_bound[i]*extr_dir_sol[i]
+            val = -1*mip_d.obj_terms_lower_bound[i]*extr_dir_sol[i]
             JuMP.set_normalized_coefficient(cons1[i], μ[μ_counter], val)
         end
     end
@@ -72,6 +72,7 @@ function solve_dw_main_model(cgd::CGdata, mip_d::MIPModelInfo, optimizer::MOI.Ab
     #solve the dw_main_model
     JuMP.set_optimizer(cgd.dw_main.model, optimizer.options.lp_solver)
     JuMP.optimize!(cgd.dw_main.model)
+    print(cgd.dw_main.model, "\n")
     if (JuMP.termination_status(cgd.dw_main.model) ==  MOI.OPTIMAL) || (JuMP.termination_status(cgd.dw_main.model) ==  MOI.LOCALLY_SOLVED)
         obj_val              = JuMP.objective_value(cgd.dw_main.model)
         dw_main_vars         = JuMP.all_variables(cgd.dw_main.model)
@@ -126,15 +127,16 @@ function solve_pricing_sub_model(cgd::CGdata, mip_d::MIPModelInfo, optimizer::MO
     len          = length(dwmd_sol)
     #set obj func
     if len > num_constr
-        (mip_d.obj_sense == :MAX_SENSE) && JuMP.@objective(model, Max, sum(bin_vars[i]*obj_terms_lb[i]*dwmd_sol[i] for i in 1:nbin)+sum(sum(dot(coef[i][j],x[varid[i][j]])*dwmd_sol[nbin+(i-1)*nbin+j] for j in 1:nbin) for i in 1:nitr)-dwmd_sol[num_constr]-sum(dwmd_sol[i]*x[cgd.dw_main.cut_var_idx[i-num_constr]] for i in (num_constr+1):len))
-        (mip_d.obj_sense == :MIN_SENSE) && JuMP.@objective(model, Min, sum(bin_vars[i]*obj_terms_lb[i]*dwmd_sol[i] for i in 1:nbin)+sum(sum(dot(coef[i][j],x[varid[i][j]])*dwmd_sol[nbin+(i-1)*nbin+j] for j in 1:nbin) for i in 1:nitr)-dwmd_sol[num_constr]-sum(dwmd_sol[i]*x[cgd.dw_main.cut_var_idx[i-num_constr]] for i in (num_constr+1):len))
+        (mip_d.obj_sense == :MAX_SENSE) && JuMP.@objective(model, Max, sum(bin_vars[i]*obj_terms_lb[i]*dwmd_sol[i] for i in 1:nbin)+sum(sum(dot(coef[i][j],x[varid[i][j]])*dwmd_sol[nbin+(i-1)*nbin+j] for j in 1:nbin) for i in 1:nitr)-dwmd_sol[num_constr]-sum(dwmd_sol[i]*x[cgd.cut_var_indices[i-num_constr]] for i in (num_constr+1):len))
+        (mip_d.obj_sense == :MIN_SENSE) && JuMP.@objective(model, Min, sum(bin_vars[i]*obj_terms_lb[i]*dwmd_sol[i] for i in 1:nbin)-sum(sum(dot(coef[i][j],x[varid[i][j]])*dwmd_sol[nbin+(i-1)*nbin+j] for j in 1:nbin) for i in 1:nitr)-dwmd_sol[num_constr]-sum(dwmd_sol[i]*x[cgd.cut_var_indices[i-num_constr]] for i in (num_constr+1):len))
     else
         (mip_d.obj_sense == :MAX_SENSE) && JuMP.@objective(model, Max, sum(bin_vars[i]*obj_terms_lb[i]*dwmd_sol[i] for i in 1:nbin)+sum(sum(dot(coef[i][j],x[varid[i][j]])*dwmd_sol[nbin+(i-1)*nbin+j] for j in 1:nbin) for i in 1:nitr)-dwmd_sol[num_constr])
-        (mip_d.obj_sense == :MIN_SENSE) && JuMP.@objective(model, Min, sum(bin_vars[i]*obj_terms_lb[i]*dwmd_sol[i] for i in 1:nbin)+sum(sum(dot(coef[i][j],x[varid[i][j]])*dwmd_sol[nbin+(i-1)*nbin+j] for j in 1:nbin) for i in 1:nitr)-dwmd_sol[num_constr])
+        (mip_d.obj_sense == :MIN_SENSE) && JuMP.@objective(model, Min, sum(bin_vars[i]*obj_terms_lb[i]*dwmd_sol[i] for i in 1:nbin)-sum(sum(dot(coef[i][j],x[varid[i][j]])*dwmd_sol[nbin+(i-1)*nbin+j] for j in 1:nbin) for i in 1:nitr)-dwmd_sol[num_constr])
     end
     #set lp solver
     JuMP.set_optimizer(model, optimizer.options.lp_solver)
     JuMP.optimize!(model)
+    print(model, "\n")
     if (JuMP.termination_status(model) ==  MOI.OPTIMAL) || (JuMP.termination_status(model) ==  MOI.LOCALLY_SOLVED)
         pricing_sub_solution       = JuMP.value.(x)
         objective_value            = JuMP.objective_value(model)
@@ -169,6 +171,7 @@ function solve_pricing_sub_extm_dir_model(cgd::CGdata, mip_d::MIPModelInfo, opti
     #set lp solver
     JuMP.set_optimizer(model, optimizer.options.lp_solver)
     JuMP.optimize!(model)
+    print(model, "\n")
     if (JuMP.termination_status(model) ==  MOI.OPTIMAL) || (JuMP.termination_status(model) ==  MOI.LOCALLY_SOLVED)
         pricing_sub_extr_dir_solution       = JuMP.value.(x)
         objective_value                     = JuMP.objective_value(model)
@@ -188,7 +191,7 @@ end
 """
 The column generation algorithm is stated here.
 """
-function cg_algorithm(node::Node, mip_d::MIPModelInfo, optimizer::MOI.AbstractOptimizer)
+function cg_algorithm(node, mip_d::MIPModelInfo, optimizer::MOI.AbstractOptimizer)
     #add cuts to the node if any
     len  = length(node.cut_var_indices)
     λlen = length(node.dwmainObj.λ)
@@ -265,10 +268,10 @@ function cg_algorithm(node::Node, mip_d::MIPModelInfo, optimizer::MOI.AbstractOp
             end
             #solve dw_main_model
             solve_dw_main_model(cgd, mip_d, optimizer)
-        elseif (cgd.cg_iter >1)
+        elseif (cgd.cg_iter >1) && (cgd.cg_iter <= 5)
             solve_dw_main_model(cgd, mip_d, optimizer)
         #elseif TO DO: for n>50 need to update basis of the dw_model instead of adding columns
-        elseif cgd.cg_iter > 50
+        elseif cgd.cg_iter > 5
             @info "maximum number of column generation iteration reached. \n"
             break
         end
@@ -287,7 +290,7 @@ function cg_algorithm(node::Node, mip_d::MIPModelInfo, optimizer::MOI.AbstractOp
     end
     ExtremePoints = cgd.extr_ptn_sol
     ExtremeDirections = cgd.extr_dir_sol
-    dw_solution = cgd.dw_main_sol[cgd.num_cg_iter-1].solution
+    dw_solution = cgd.dw_main_sol[cgd.cg_iter-1].solution
     (cgd.λ_counter > 0) && (lp_ext_sol = sum(ExtremePoints[i].solution*cgd.λ_val[i] for i in 1:cgd.λ_counter))
     (cgd.μ_counter > 0) && (lp_ext_dir_sol = sum(ExtremeDirections[i].solution*cgd.μ_val[i] for i in 1:cgd.μ_counter))
     (cgd.λ_counter > 0) && (cgd.μ_counter > 0) && (lp_solution = lp_ext_sol+lp_ext_dir_sol)
@@ -295,6 +298,6 @@ function cg_algorithm(node::Node, mip_d::MIPModelInfo, optimizer::MOI.AbstractOp
     #return solution of the input model
     print("The optimal lp solution using column generation method is :\n", lp_solution, "\n Thank you for having patience.\n")
     cgd.cg_solution  = lp_solution
-    cgd.cg_objval    = cgd.dw_main_sol[cgd.num_cg_iter-1].obj_value
+    cgd.cg_objval    = cgd.dw_main_sol[cgd.cg_iter-1].obj_value
     return (cgd.cg_solution, cgd.cg_objval, cgd.cg_status)
 end

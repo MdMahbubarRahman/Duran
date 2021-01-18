@@ -110,7 +110,6 @@ we can update this function as JuMP expression and define obj function.
 """
 we need a data structure for recording data from column generation algorithm
 """
-
 mutable struct dwmSolutionObj
     solution        :: Vector{Float64}
     obj_value       :: Float64
@@ -202,6 +201,11 @@ function init_model_info(m::MIPModelInfo, model::JuMP.Model, oad::OAdata, op::Hy
     m.disc2var_idx             = op.disc2var_idx
     m.var_type                 = op.var_type
     m.obj_sense                = JuMP.objective_sense(model) == MOI.MIN_SENSE ? :MIN_SENSE : :MAX_SENSE
+    m.le_constr                = []
+    m.ge_constr                = []
+    m.eq_constr                = []
+    m.l_var                    = []
+    m.u_var                    = []
     #extract model constraints
     constr_types = JuMP.list_of_constraint_types(model)
     siz = length(constr_types)
@@ -268,6 +272,7 @@ function init_cg_data(cgd::CGdata, node)
     cgd.dw_main                      = node.dwmainObj
     cgd.pricing_sub                  = node.psmObj
     cgd.pricing_sub_extrm_dir        = node.psmedObj
+    cgd.dw_main_sol                  = []
     cgd.dw_main_dual_solution        = []
     cgd.λ_val                        = []
     cgd.μ_val                        = []
@@ -282,6 +287,8 @@ function init_cg_data(cgd::CGdata, node)
     cgd.cg_solution                  = []
     cgd.cg_objval                    = Inf
     cgd.cut_var_indices              = node.cut_var_indices
+    cgd.extr_ptn_sol                 = []
+    cgd.extr_dir_sol                 = []
 end
 
 
@@ -290,9 +297,9 @@ function decompose_model(mip_d::MIPModelInfo)
     #construct dw_main model
     dwmObj   = construct_dw_main_model(mip_d)
     #construct pricing sub model
-    psmObj   = construct_pricing_sub_model(cgd)
+    psmObj   = construct_pricing_sub_model(mip_d)
     #construct pricing sub model for extreme direction
-    psmedObj = construct_pricing_sub_model_for_extreme_directions(cgd, psmObj)
+    psmedObj = construct_pricing_sub_model_for_extreme_directions(mip_d, psmObj)
     #return decomposed model objects
     return dwmObj, psmObj, psmedObj
 end
@@ -393,7 +400,6 @@ function construct_pricing_sub_model(mip_d::MIPModelInfo)
     for i in 1:siz
         push!(bin_vars, JuMP.VariableRef(psm, mip_d.moi_bin_var[i].args[2]))
     end
-    mip_d.jump_bin_var = bin_vars
     var_type           = mip_d.var_type
     #return pricing sub problem obj
     return pricingSub(psm, x, var_type, bin_vars)
@@ -430,14 +436,16 @@ function construct_pricing_sub_model_for_extreme_directions(mip_d::MIPModelInfo,
             con_obj = JuMP.constraint_object(constrs[j])
             func    = JuMP.moi_function(con_obj.func)
             exp = JuMP.@expression(psmed, 0)
-            for term in func.terms
-                exp = exp+JuMP.@expression(psmed, term.coefficient*(y[term.variable_index.value]-z[term.variable_index.value]))
-            end
-            (constr_types[i][2] == MOI.LessThan{Float64}) && @constraint(psmed, exp <= 0)
-            (constr_types[i][2] == MOI.GreaterThan{Float64}) && @constraint(psmed, -1*exp <= 0)
-            if (constr_types[i][2] == MOI.EqualTo{Float64})
-                @constraint(psmed, exp <= 0)
-                @constraint(psmed, -1*exp <= 0)
+            if typeof(func) ==  SAF
+                for term in func.terms
+                    exp = exp+JuMP.@expression(psmed, term.coefficient*(y[term.variable_index.value]-z[term.variable_index.value]))
+                end
+                (constr_types[i][2] == MOI.LessThan{Float64}) && @constraint(psmed, exp <= 0)
+                (constr_types[i][2] == MOI.GreaterThan{Float64}) && @constraint(psmed, -1*exp <= 0)
+                if (constr_types[i][2] == MOI.EqualTo{Float64})
+                    @constraint(psmed, exp <= 0)
+                    @constraint(psmed, -1*exp <= 0)
+                end
             end
         end
     end

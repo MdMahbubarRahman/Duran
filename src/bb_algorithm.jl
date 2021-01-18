@@ -6,14 +6,31 @@ mutable struct Node
     dwmainObj            :: DWMain
     psmObj               :: pricingSub
     psmedObj             :: pricingSubExtrmDir
-    cut_var_indices      :: Vector{Int64}
+    cut_var_indices      :: Vector{Int64} #indices are lighter than a set of constraints; considering memory efficiency
     cut_inequality_types :: Vector{Symbol}
     cut_rhs              :: Vector{Float64}
     parent               :: Int64 #parent node index
     left_child           :: Union{Node, Nothing}
     right_child          :: Union{Node, Nothing}
+
+    Node() = new()
 end
 
+function Node(indx, dwmainObj, psmObj, psmedObj, cut_var_indices, cut_inequality_types, cut_rhs, parent, left_child, right_child)
+    m = Node()
+    m.indx                 = indx
+    m.dwmainObj            = dwmainObj
+    m.psmObj               = psmObj
+    m.psmedObj             = psmedObj
+    m.cut_var_indices      = cut_var_indices
+    m.cut_inequality_types = cut_inequality_types
+    m.cut_rhs              = cut_rhs
+    m.parent               = parent
+    m.left_child           = left_child
+    m.right_child          = right_child
+    #return node object m
+    return m
+end
 
 """
 Incumbent solution strorage
@@ -122,7 +139,7 @@ function branch_and_price(model::JuMP.Model, oad::OAdata, op::HybridProblem, opt
                     push!(left_cct, :(<=))
                     push!(right_cct, :(>=))
                     left_crhs   = node.cut_rhs
-                    left_crhs   = node.cut_rhs
+                    right_crhs   = node.cut_rhs
                     push!(left_crhs, 0)
                     push!(right_crhs, 1)
                     node_counter += 1
